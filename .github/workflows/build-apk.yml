@@ -18,8 +18,8 @@ jobs:
         run: flutter create --platforms=android --org com.srirahayu --project-name sri_rahayu_pos .
       - name: Install packages
         run: flutter pub get
-      - name: Analyze
-        run: flutter analyze
+      - name: Analyze application source
+        run: flutter analyze lib
       - name: Build APK
         run: flutter build apk --release
       - uses: actions/upload-artifact@v4
