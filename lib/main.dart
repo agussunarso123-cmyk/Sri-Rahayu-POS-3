@@ -274,12 +274,17 @@ class _PosHomeState extends State<PosHome> {
       actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Batal')),FilledButton(onPressed:(){final v=int.tryParse(c.text);if(v==null||v<0)return;setState(()=>p.stock=v);save();Navigator.pop(ctx);},child:const Text('Simpan'))]));
   }
   int outstanding(Employee e) => staffEntries.where((x)=>x.employeeId==e.id && x.branch==branch).fold(0,(a,x)=>a+(x.type=='Kasbon'?x.amount:(x.type=='Potongan kasbon'?-x.amount:0)));
+  int parseRupiah(String value) {
+    final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
+    return int.tryParse(digits) ?? 0;
+  }
+
   Future<void> addEmployee() async {
     final n=TextEditingController(),s=TextEditingController();
     await showDialog(context:context,builder:(ctx)=>AlertDialog(title:const Text('Tambah karyawan'),content:Column(mainAxisSize:MainAxisSize.min,children:[
       TextField(controller:n,decoration:const InputDecoration(labelText:'Nama karyawan')),
       TextField(controller:s,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Gaji pokok per bulan (Rp)')),
-    ]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Batal')),FilledButton(onPressed:(){final v=int.tryParse(s.text)??0;if(n.text.trim().isEmpty||v<=0)return;setState(()=>employees.add(Employee(DateTime.now().microsecondsSinceEpoch.toString(),n.text.trim(),v)));save();Navigator.pop(ctx);},child:const Text('Simpan'))]));
+    ]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Batal')),FilledButton(onPressed:(){final v=parseRupiah(s.text);if(n.text.trim().isEmpty||v<=0){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Masukkan gaji lebih dari Rp 0')));return;}setState(()=>employees.add(Employee(DateTime.now().microsecondsSinceEpoch.toString(),n.text.trim(),v)));save();Navigator.pop(ctx);},child:const Text('Simpan'))]));
   }
   Future<void> addStaffEntry(Employee e) async {
     String type = 'Gaji';
@@ -329,7 +334,7 @@ class _PosHomeState extends State<PosHome> {
             ),
             FilledButton(
               onPressed: () {
-                final v = int.tryParse(amount.text) ?? 0;
+                final v = parseRupiah(amount.text);
                 if (v <= 0) return;
                 if (type == 'Potongan kasbon' && v > outstanding(e)) {
                   ScaffoldMessenger.of(context).showSnackBar(
