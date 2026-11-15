@@ -41,6 +41,13 @@ class Sale {
   factory Sale.fromJson(Map<String,dynamic> j)=>Sale(DateTime.tryParse(j['date']??'')??DateTime.now(),(j['total'] as num?)?.toInt()??0,j['branch']??'Cabang Utama',List<Map<String,dynamic>>.from((j['items']??[]).map((e)=>Map<String,dynamic>.from(e))),payment:j['payment']??'Tunai',cashReceived:(j['cashReceived'] as num?)?.toInt()??0);
 }
 
+class Expense {
+  Expense(this.date,this.amount,this.branch,this.category,this.note);
+  DateTime date; int amount; String branch,category,note;
+  Map<String,dynamic> toJson()=>{'date':date.toIso8601String(),'amount':amount,'branch':branch,'category':category,'note':note};
+  factory Expense.fromJson(Map<String,dynamic> j)=>Expense(DateTime.tryParse(j['date']??'')??DateTime.now(),(j['amount'] as num?)?.toInt()??0,j['branch']??'Cabang Utama',j['category']??'Lainnya',j['note']??'');
+}
+
 class PosHome extends StatefulWidget {
   const PosHome({super.key});
   @override State<PosHome> createState()=>_PosHomeState();
@@ -51,6 +58,7 @@ class _PosHomeState extends State<PosHome> {
   List<String> branches=['Cabang Utama'];
   List<Product> products=[];
   List<Sale> sales=[];
+  List<Expense> expenses=[];
   final Map<String,int> cart={};
   final picker=ImagePicker();
   final money=NumberFormat.currency(locale:'id_ID',symbol:'Rp ',decimalDigits:0);
@@ -61,6 +69,7 @@ class _PosHomeState extends State<PosHome> {
     try {
       products=(jsonDecode(p.getString('products')??'[]') as List).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList();
       sales=(jsonDecode(p.getString('sales')??'[]') as List).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList();
+      expenses=(jsonDecode(p.getString('expenses')??'[]') as List).map((e)=>Expense.fromJson(Map<String,dynamic>.from(e))).toList();
       branches=List<String>.from(jsonDecode(p.getString('branches')??'["Cabang Utama"]'));
       branch=p.getString('branch')??branches.first;
     } catch (_) { products=[]; sales=[]; branches=['Cabang Utama']; branch=branches.first; }
@@ -72,6 +81,7 @@ class _PosHomeState extends State<PosHome> {
     final p=await SharedPreferences.getInstance();
     await p.setString('products',jsonEncode(products.map((e)=>e.toJson()).toList()));
     await p.setString('sales',jsonEncode(sales.map((e)=>e.toJson()).toList()));
+    await p.setString('expenses',jsonEncode(expenses.map((e)=>e.toJson()).toList()));
     await p.setString('branches',jsonEncode(branches)); await p.setString('branch',branch);
   }
   int get total=>cart.entries.fold(0,(a,e){final p=products.firstWhere((x)=>x.id==e.key);return a+p.price*e.value;});
@@ -100,6 +110,37 @@ class _PosHomeState extends State<PosHome> {
       },child:const Text('Simpan'))],
     )));
   }
+  Future<void> addExpense() async {
+    final amount=TextEditingController(), note=TextEditingController();
+    String category='Belanja bahan';
+    await showDialog(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
+      title:const Text('Catat pengeluaran'),
+      content:Column(mainAxisSize:MainAxisSize.min,children:[
+        TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Jumlah (Rp)',prefixText:'Rp ')),
+        const SizedBox(height:10),
+        DropdownButtonFormField<String>(value:category,decoration:const InputDecoration(labelText:'Kategori'),items:const[
+          DropdownMenuItem(value:'Belanja bahan',child:Text('Belanja bahan')),
+          DropdownMenuItem(value:'Gaji',child:Text('Gaji')),
+          DropdownMenuItem(value:'Sewa',child:Text('Sewa tempat')),
+          DropdownMenuItem(value:'Listrik dan air',child:Text('Listrik dan air')),
+          DropdownMenuItem(value:'Transportasi',child:Text('Transportasi')),
+          DropdownMenuItem(value:'Lainnya',child:Text('Lainnya'))
+        ],onChanged:(v)=>refresh(()=>category=v??'Lainnya')),
+        const SizedBox(height:10),
+        TextField(controller:note,decoration:const InputDecoration(labelText:'Catatan (opsional)'))
+      ]),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Batal')),
+        FilledButton(onPressed:(){
+          final value=int.tryParse(amount.text)??0;
+          if(value<=0){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Masukkan jumlah pengeluaran yang benar')));return;}
+          setState(()=>expenses.insert(0,Expense(DateTime.now(),value,branch,category,note.text.trim())));
+          save();Navigator.pop(ctx);
+        },child:const Text('Simpan'))
+      ]
+    )));
+  }
+
   Future<void> changeStock(Product p) async {
     final c=TextEditingController(text:p.stock.toString());
     await showDialog(context:context,builder:(ctx)=>AlertDialog(title:Text('Stok '+p.name),content:TextField(controller:c,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Jumlah stok')),
@@ -193,6 +234,27 @@ class _PosHomeState extends State<PosHome> {
       children:s.items.map((e)=>ListTile(dense:true,title:Text(e['name'].toString()),trailing:Text(e['qty'].toString()+' x '+money.format((e['price'] as num).toInt())))).toList()))),
     if(branchSales.isEmpty)const Padding(padding:EdgeInsets.all(24),child:Center(child:Text('Belum ada transaksi di cabang ini')))
   ]);
+  Widget expensePage()=>Scaffold(
+    backgroundColor:Colors.transparent,
+    floatingActionButton:FloatingActionButton.extended(onPressed:addExpense,icon:const Icon(Icons.add),label:const Text('Catat biaya')),
+    body:ListView(padding:const EdgeInsets.all(16),children:[
+      Card(child:Padding(padding:const EdgeInsets.all(18),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        const Text('Total pengeluaran cabang ini',style:TextStyle(color:Colors.black54)),
+        const SizedBox(height:8),
+        Text(money.format(expenses.where((e)=>e.branch==branch).fold(0,(a,e)=>a+e.amount)),style:const TextStyle(fontWeight:FontWeight.bold,fontSize:24,color:Color(0xFFB45309))),
+        Text(expenses.where((e)=>e.branch==branch).length.toString()+' catatan biaya')
+      ]))),
+      const SizedBox(height:12),
+      ...expenses.where((e)=>e.branch==branch).map((e)=>Card(child:ListTile(
+        leading:const CircleAvatar(child:Icon(Icons.receipt_long)),
+        title:Text(e.category,style:const TextStyle(fontWeight:FontWeight.bold)),
+        subtitle:Text(DateFormat('dd MMM yyyy • HH:mm','id_ID').format(e.date)+(e.note.isEmpty?'':' • '+e.note)),
+        trailing:Text(money.format(e.amount),style:const TextStyle(fontWeight:FontWeight.bold))
+      ))),
+      if(expenses.where((e)=>e.branch==branch).isEmpty)const Padding(padding:EdgeInsets.all(24),child:Center(child:Text('Belum ada pengeluaran di cabang ini')))
+    ])
+  );
+
   Widget branchPage()=>ListView(padding:const EdgeInsets.all(16),children:[
     const Text('Kelola lokasi usaha',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),const SizedBox(height:5),const Text('Pilih cabang aktif untuk melihat transaksi cabang tersebut.',style:TextStyle(color:Colors.black54)),const SizedBox(height:12),
     ...branches.map((b)=>Card(child:RadioListTile<String>(value:b,groupValue:branch,onChanged:(v){if(v==null)return;setState((){branch=v;cart.clear();});save();},title:Text(b,style:const TextStyle(fontWeight:FontWeight.w600)),subtitle:Text(sales.where((s)=>s.branch==b).length.toString()+' transaksi'),secondary:const Icon(Icons.store,color:Color(0xFF137C5A))))),
@@ -202,8 +264,8 @@ class _PosHomeState extends State<PosHome> {
 
   @override Widget build(BuildContext context){
     if(loading)return const Scaffold(body:Center(child:CircularProgressIndicator()));
-    final pages=[dashboard(),cashier(),menuPage(),reports(),branchPage()];
-    const titles=['Ringkasan','Kasir','Daftar Menu','Laporan','Cabang'];
+    final pages=[dashboard(),cashier(),menuPage(),reports(),branchPage(),expensePage()];
+    const titles=['Ringkasan','Kasir','Daftar Menu','Laporan','Cabang','Pengeluaran'];
     return Scaffold(appBar:AppBar(title:Row(children:[Container(width:36,height:36,decoration:BoxDecoration(color:const Color(0xFF137C5A),borderRadius:BorderRadius.circular(10)),child:const Icon(Icons.storefront,color:Colors.white)),
       const SizedBox(width:9),Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(titles[tab],style:const TextStyle(fontSize:17,fontWeight:FontWeight.bold)),Text(branch,style:const TextStyle(fontSize:11,color:Colors.black54))])])),
       body:IndexedStack(index:tab,children:pages),
@@ -212,7 +274,8 @@ class _PosHomeState extends State<PosHome> {
         NavigationDestination(icon:Icon(Icons.point_of_sale_outlined),selectedIcon:Icon(Icons.point_of_sale),label:'Kasir'),
         NavigationDestination(icon:Icon(Icons.restaurant_menu),label:'Menu'),
         NavigationDestination(icon:Icon(Icons.bar_chart_outlined),selectedIcon:Icon(Icons.bar_chart),label:'Laporan'),
-        NavigationDestination(icon:Icon(Icons.store_outlined),selectedIcon:Icon(Icons.store),label:'Cabang')
+        NavigationDestination(icon:Icon(Icons.store_outlined),selectedIcon:Icon(Icons.store),label:'Cabang'),
+        NavigationDestination(icon:Icon(Icons.wallet_outlined),selectedIcon:Icon(Icons.wallet),label:'Biaya')
       ]));
   }
 }
