@@ -9,6 +9,7 @@ Aplikasi kasir Android untuk usaha kuliner Sri Rahayu.
 - Input uang tunai diterima dan hitung kembalian otomatis.
 - Katalog menu, kategori, harga, stok, dan foto dari galeri.
 - Riwayat transaksi menampilkan metode pembayaran.
+- Pencatatan pengeluaran per cabang dengan kategori dan catatan.
 - Pemilihan dan penambahan cabang.
 - Penyimpanan lokal agar kasir dasar tetap bisa digunakan tanpa internet.
 
