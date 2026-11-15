@@ -83,7 +83,7 @@ class _LoginGateState extends State<LoginGate> {
             const Text('Login awal: admin  •  kata sandi: 123456', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54))
           ],
         ))),
-      )),
+      ))),
     );
   }
 }
@@ -269,21 +269,76 @@ class _PosHomeState extends State<PosHome> {
     ]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Batal')),FilledButton(onPressed:(){final v=int.tryParse(s.text)??0;if(n.text.trim().isEmpty||v<=0)return;setState(()=>employees.add(Employee(DateTime.now().microsecondsSinceEpoch.toString(),n.text.trim(),v)));save();Navigator.pop(ctx);},child:const Text('Simpan'))]));
   }
   Future<void> addStaffEntry(Employee e) async {
-    String type='Gaji'; final amount=TextEditingController(text:e.salary.toString()),note=TextEditingController();
-    await showDialog(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(title:Text('Catat • '+e.name),content:Column(mainAxisSize:MainAxisSize.min,children:[
-      DropdownButtonFormField<String>(value:type,decoration:const InputDecoration(labelText:'Jenis transaksi'),items:const[
-        DropdownMenuItem(value:'Gaji',child:Text('Bayar gaji')),
-        DropdownMenuItem(value:'Kasbon',child:Text('Berikan kasbon')),
-        DropdownMenuItem(value:'Potongan kasbon',child:Text('Potong / cicil kasbon')),
-      ],onChanged:(v)=>refresh(()=>type=v??'Gaji')),
-      TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Jumlah (Rp)',prefixText:'Rp ')),
-      TextField(controller:note,decoration:const InputDecoration(labelText:'Catatan (opsional)')),
-      if(type=='Potongan kasbon') Align(alignment:Alignment.centerLeft,child:Text('Sisa kasbon: '+money.format(outstanding(e)),style:const TextStyle(color:Colors.deepOrange))),
-    ]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Batal')),FilledButton(onPressed:(){
-      final v=int.tryParse(amount.text)??0;if(v<=0)return;
-      if(type=='Potongan kasbon'&&v>outstanding(e)){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Potongan melebihi sisa kasbon')));return;}
-      setState(()=>staffEntries.insert(0,StaffEntry(DateTime.now(),e.id,e.name,branch,type,v,note.text.trim())));save();Navigator.pop(ctx);
-    },child:const Text('Simpan'))]));
+    String type = 'Gaji';
+    final amount = TextEditingController(text: e.salary.toString());
+    final note = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, refresh) => AlertDialog(
+          title: Text('Catat • ${e.name}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String>(
+                value: type,
+                decoration: const InputDecoration(labelText: 'Jenis transaksi'),
+                items: const [
+                  DropdownMenuItem(value: 'Gaji', child: Text('Bayar gaji')),
+                  DropdownMenuItem(value: 'Kasbon', child: Text('Berikan kasbon')),
+                  DropdownMenuItem(value: 'Potongan kasbon', child: Text('Potong / cicil kasbon')),
+                ],
+                onChanged: (v) => refresh(() => type = v ?? 'Gaji'),
+              ),
+              TextField(
+                controller: amount,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Jumlah (Rp)', prefixText: 'Rp '),
+              ),
+              TextField(
+                controller: note,
+                decoration: const InputDecoration(labelText: 'Catatan (opsional)'),
+              ),
+              if (type == 'Potongan kasbon')
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Sisa kasbon: ${money.format(outstanding(e))}',
+                    style: const TextStyle(color: Colors.deepOrange),
+                  ),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Batal'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final v = int.tryParse(amount.text) ?? 0;
+                if (v <= 0) return;
+                if (type == 'Potongan kasbon' && v > outstanding(e)) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Potongan melebihi sisa kasbon')),
+                  );
+                  return;
+                }
+                setState(() {
+                  staffEntries.insert(
+                    0,
+                    StaffEntry(DateTime.now(), e.id, e.name, branch, type, v, note.text.trim()),
+                  );
+                });
+                save();
+                Navigator.pop(ctx);
+              },
+              child: const Text('Simpan'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
   Widget staffPage()=>Scaffold(backgroundColor:Colors.transparent,floatingActionButton:FloatingActionButton.extended(onPressed:addEmployee,icon:const Icon(Icons.person_add),label:const Text('Tambah karyawan')),body:ListView(padding:const EdgeInsets.all(14),children:[
     Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
