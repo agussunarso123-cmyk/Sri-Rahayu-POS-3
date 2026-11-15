@@ -112,6 +112,19 @@ class Expense {
 }
 
 class PosHome extends StatefulWidget {
+class Employee {
+  Employee(this.id,this.name,this.salary);
+  String id,name; int salary;
+  Map<String,dynamic> toJson()=>{'id':id,'name':name,'salary':salary};
+  factory Employee.fromJson(Map<String,dynamic> j)=>Employee(j['id']??'',j['name']??'',(j['salary'] as num?)?.toInt()??0);
+}
+class StaffEntry {
+  StaffEntry(this.date,this.employeeId,this.employeeName,this.branch,this.type,this.amount,this.note);
+  DateTime date; String employeeId,employeeName,branch,type,note; int amount;
+  Map<String,dynamic> toJson()=>{'date':date.toIso8601String(),'employeeId':employeeId,'employeeName':employeeName,'branch':branch,'type':type,'amount':amount,'note':note};
+  factory StaffEntry.fromJson(Map<String,dynamic> j)=>StaffEntry(DateTime.tryParse(j['date']??'')??DateTime.now(),j['employeeId']??'',j['employeeName']??'',j['branch']??'Cabang Utama',j['type']??'Gaji', (j['amount'] as num?)?.toInt()??0,j['note']??'');
+}
+
   const PosHome({super.key});
   @override State<PosHome> createState()=>_PosHomeState();
 }
@@ -122,6 +135,8 @@ class _PosHomeState extends State<PosHome> {
   List<Product> products=[];
   List<Sale> sales=[];
   List<Expense> expenses=[];
+  List<Employee> employees=[];
+  List<StaffEntry> staffEntries=[];
   final Map<String,int> cart={};
   final picker=ImagePicker();
   final money=NumberFormat.currency(locale:'id_ID',symbol:'Rp ',decimalDigits:0);
@@ -133,6 +148,8 @@ class _PosHomeState extends State<PosHome> {
       products=(jsonDecode(p.getString('products')??'[]') as List).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList();
       sales=(jsonDecode(p.getString('sales')??'[]') as List).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList();
       expenses=(jsonDecode(p.getString('expenses')??'[]') as List).map((e)=>Expense.fromJson(Map<String,dynamic>.from(e))).toList();
+      employees=(jsonDecode(p.getString('employees')??'[]') as List).map((e)=>Employee.fromJson(Map<String,dynamic>.from(e))).toList();
+      staffEntries=(jsonDecode(p.getString('staff_entries')??'[]') as List).map((e)=>StaffEntry.fromJson(Map<String,dynamic>.from(e))).toList();
       branches=List<String>.from(jsonDecode(p.getString('branches')??'["Cabang Utama"]'));
       branch=p.getString('branch')??branches.first;
     } catch (_) { products=[]; sales=[]; branches=['Cabang Utama']; branch=branches.first; }
@@ -145,6 +162,8 @@ class _PosHomeState extends State<PosHome> {
     await p.setString('products',jsonEncode(products.map((e)=>e.toJson()).toList()));
     await p.setString('sales',jsonEncode(sales.map((e)=>e.toJson()).toList()));
     await p.setString('expenses',jsonEncode(expenses.map((e)=>e.toJson()).toList()));
+    await p.setString('employees',jsonEncode(employees.map((e)=>e.toJson()).toList()));
+    await p.setString('staff_entries',jsonEncode(staffEntries.map((e)=>e.toJson()).toList()));
     await p.setString('branches',jsonEncode(branches)); await p.setString('branch',branch);
   }
   int get total=>cart.entries.fold(0,(a,e){final p=products.firstWhere((x)=>x.id==e.key);return a+p.price*e.value;});
@@ -236,6 +255,47 @@ class _PosHomeState extends State<PosHome> {
   }
 
   Future<void> changeStock(Product p) async {
+  int outstanding(Employee e) => staffEntries.where((x)=>x.employeeId==e.id && x.branch==branch).fold(0,(a,x)=>a+(x.type=='Kasbon'?x.amount:(x.type=='Potongan kasbon'?-x.amount:0)));
+  Future<void> addEmployee() async {
+    final n=TextEditingController(),s=TextEditingController();
+    await showDialog(context:context,builder:(ctx)=>AlertDialog(title:const Text('Tambah karyawan'),content:Column(mainAxisSize:MainAxisSize.min,children:[
+      TextField(controller:n,decoration:const InputDecoration(labelText:'Nama karyawan')),
+      TextField(controller:s,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Gaji pokok per bulan (Rp)')),
+    ]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Batal')),FilledButton(onPressed:(){final v=int.tryParse(s.text)??0;if(n.text.trim().isEmpty||v<=0)return;setState(()=>employees.add(Employee(DateTime.now().microsecondsSinceEpoch.toString(),n.text.trim(),v)));save();Navigator.pop(ctx);},child:const Text('Simpan'))]));
+  }
+  Future<void> addStaffEntry(Employee e) async {
+    String type='Gaji'; final amount=TextEditingController(text:e.salary.toString()),note=TextEditingController();
+    await showDialog(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(title:Text('Catat • '+e.name),content:Column(mainAxisSize:MainAxisSize.min,children:[
+      DropdownButtonFormField<String>(value:type,decoration:const InputDecoration(labelText:'Jenis transaksi'),items:const[
+        DropdownMenuItem(value:'Gaji',child:Text('Bayar gaji')),
+        DropdownMenuItem(value:'Kasbon',child:Text('Berikan kasbon')),
+        DropdownMenuItem(value:'Potongan kasbon',child:Text('Potong / cicil kasbon')),
+      ],onChanged:(v)=>refresh(()=>type=v??'Gaji')),
+      TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Jumlah (Rp)',prefixText:'Rp ')),
+      TextField(controller:note,decoration:const InputDecoration(labelText:'Catatan (opsional)')),
+      if(type=='Potongan kasbon') Align(alignment:Alignment.centerLeft,child:Text('Sisa kasbon: '+money.format(outstanding(e)),style:const TextStyle(color:Colors.deepOrange))),
+    ]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Batal')),FilledButton(onPressed:(){
+      final v=int.tryParse(amount.text)??0;if(v<=0)return;
+      if(type=='Potongan kasbon'&&v>outstanding(e)){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Potongan melebihi sisa kasbon')));return;}
+      setState(()=>staffEntries.insert(0,StaffEntry(DateTime.now(),e.id,e.name,branch,type,v,note.text.trim())));save();Navigator.pop(ctx);
+    },child:const Text('Simpan'))]));
+  }
+  Widget staffPage()=>Scaffold(backgroundColor:Colors.transparent,floatingActionButton:FloatingActionButton.extended(onPressed:addEmployee,icon:const Icon(Icons.person_add),label:const Text('Tambah karyawan')),body:ListView(padding:const EdgeInsets.all(14),children:[
+    Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+      const Text('Rekap gaji & kasbon',style:TextStyle(fontWeight:FontWeight.bold,fontSize:17)),
+      Text('Total gaji dibayarkan: '+money.format(staffEntries.where((x)=>x.branch==branch&&x.type=='Gaji').fold(0,(a,x)=>a+x.amount))),
+      Text('Sisa kasbon karyawan: '+money.format(employees.fold(0,(a,e)=>a+outstanding(e)))),
+    ]))),
+    const SizedBox(height:8),const Text('Daftar karyawan',style:TextStyle(fontWeight:FontWeight.bold,fontSize:17)),
+    ...employees.map((e)=>Card(child:ExpansionTile(leading:const CircleAvatar(child:Icon(Icons.person)),title:Text(e.name,style:const TextStyle(fontWeight:FontWeight.bold)),subtitle:Text('Gaji pokok: '+money.format(e.salary)+' • Sisa kasbon: '+money.format(outstanding(e))),children:[
+      Padding(padding:const EdgeInsets.symmetric(horizontal:12),child:Wrap(spacing:8,children:[
+        FilledButton.tonal(onPressed:()=>addStaffEntry(e),child:const Text('Catat gaji / kasbon')),
+      ])),
+      ...staffEntries.where((x)=>x.employeeId==e.id&&x.branch==branch).take(10).map((x)=>ListTile(dense:true,title:Text(x.type),subtitle:Text(DateFormat('dd MMM yyyy','id_ID').format(x.date)+(x.note.isEmpty?'':' • '+x.note)),trailing:Text(money.format(x.amount)))),
+    ]))),
+    if(employees.isEmpty)const Padding(padding:EdgeInsets.all(24),child:Center(child:Text('Belum ada karyawan. Tambahkan karyawan untuk mulai mencatat gaji dan kasbon.'))),
+  ]));
+
     final c=TextEditingController(text:p.stock.toString());
     await showDialog(context:context,builder:(ctx)=>AlertDialog(title:Text('Stok '+p.name),content:TextField(controller:c,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Jumlah stok')),
       actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Batal')),FilledButton(onPressed:(){final v=int.tryParse(c.text);if(v==null||v<0)return;setState(()=>p.stock=v);save();Navigator.pop(ctx);},child:const Text('Simpan'))]));
@@ -358,8 +418,8 @@ class _PosHomeState extends State<PosHome> {
 
   @override Widget build(BuildContext context){
     if(loading)return const Scaffold(body:Center(child:CircularProgressIndicator()));
-    final pages=[dashboard(),cashier(),menuPage(),reports(),branchPage(),expensePage()];
-    const titles=['Ringkasan','Kasir','Daftar Menu','Laporan','Cabang','Pengeluaran'];
+    final pages=[dashboard(),cashier(),menuPage(),reports(),branchPage(),expensePage()];    final pages=[dashboard(),cashier(),menuPage(),reports(),branchPage(),expensePage(),staffPage()];
+    const titles=['Ringkasan','Kasir','Daftar Menu','Laporan','Cabang','Pengeluaran'];    const titles=['Ringkasan','Kasir','Daftar Menu','Laporan','Cabang','Pengeluaran','Gaji & Kasbon'];
     return Scaffold(appBar:AppBar(title:Row(children:[Container(width:36,height:36,decoration:BoxDecoration(color:const Color(0xFF137C5A),borderRadius:BorderRadius.circular(10)),child:const Icon(Icons.storefront,color:Colors.white)),
       const SizedBox(width:9),Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(titles[tab],style:const TextStyle(fontSize:17,fontWeight:FontWeight.bold)),Text(branch,style:const TextStyle(fontSize:11,color:Colors.black54))])])),
       actions:[PopupMenuButton<String>(onSelected:(v){if(v=='password')changeLoginPassword();if(v=='logout')logout();},itemBuilder:(_)=>const[PopupMenuItem(value:'password',child:Text('Ubah kata sandi')),PopupMenuItem(value:'logout',child:Text('Keluar akun'))])],
@@ -370,7 +430,8 @@ class _PosHomeState extends State<PosHome> {
         NavigationDestination(icon:Icon(Icons.restaurant_menu),label:'Menu'),
         NavigationDestination(icon:Icon(Icons.bar_chart_outlined),selectedIcon:Icon(Icons.bar_chart),label:'Laporan'),
         NavigationDestination(icon:Icon(Icons.store_outlined),selectedIcon:Icon(Icons.store),label:'Cabang'),
-        NavigationDestination(icon:Icon(Icons.account_balance_wallet_outlined),selectedIcon:Icon(Icons.account_balance_wallet),label:'Biaya')
+        NavigationDestination(icon:Icon(Icons.account_balance_wallet_outlined),selectedIcon:Icon(Icons.account_balance_wallet),label:'Biaya'),
+        NavigationDestination(icon:Icon(Icons.groups_outlined),selectedIcon:Icon(Icons.groups),label:'Karyawan')
       ]));
   }
 }
