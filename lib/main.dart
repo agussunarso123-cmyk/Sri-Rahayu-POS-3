@@ -189,7 +189,7 @@ class _PosHomeState extends State<PosHome> {
   Widget reports()=>ListView(padding:const EdgeInsets.all(16),children:[
     Card(child:Padding(padding:const EdgeInsets.all(18),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('Total penjualan tercatat',style:TextStyle(color:Colors.black54)),const SizedBox(height:8),Text(money.format(branchSales.fold(0,(a,s)=>a+s.total)),style:const TextStyle(fontWeight:FontWeight.bold,fontSize:25,color:Color(0xFF137C5A))),Text(branchSales.length.toString()+' transaksi • '+branch)]))),
     const SizedBox(height:12),const Text('Riwayat transaksi',style:TextStyle(fontWeight:FontWeight.bold,fontSize:17)),
-    ...branchSales.map((s)=>Card(child:ExpansionTile(leading:const Icon(Icons.receipt_long,color:Color(0xFF137C5A)),title:Text(money.format(s.total),style:const TextStyle(fontWeight:FontWeight.bold)),subtitle:Text(DateFormat('dd MMM yyyy • HH:mm','id_ID').format(s.date)),
+    ...branchSales.map((s)=>Card(child:ExpansionTile(leading:const Icon(Icons.receipt_long,color:Color(0xFF137C5A)),title:Text(money.format(s.total),style:const TextStyle(fontWeight:FontWeight.bold)),subtitle:Text(DateFormat('dd MMM yyyy • HH:mm','id_ID').format(s.date)+' • '+s.payment),
       children:s.items.map((e)=>ListTile(dense:true,title:Text(e['name'].toString()),trailing:Text(e['qty'].toString()+' x '+money.format((e['price'] as num).toInt())))).toList()))),
     if(branchSales.isEmpty)const Padding(padding:EdgeInsets.all(24),child:Center(child:Text('Belum ada transaksi di cabang ini')))
   ]);
