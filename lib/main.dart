@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:crypto/crypto.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,8 +22,70 @@ class SriRahayuApp extends StatelessWidget {
       scaffoldBackgroundColor: const Color(0xFFF5F7F6),
       appBarTheme: const AppBarTheme(backgroundColor: Color(0xFFF5F7F6)),
       cardTheme: CardThemeData(color: Colors.white, elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)))),
-    home: const PosHome(),
+    home: const LoginGate(),
   );
+}
+
+
+class LoginGate extends StatefulWidget {
+  const LoginGate({super.key});
+  @override State<LoginGate> createState() => _LoginGateState();
+}
+class _LoginGateState extends State<LoginGate> {
+  final username = TextEditingController();
+  final password = TextEditingController();
+  bool busy = true, obscure = true;
+  String error = '';
+  String digest(String value) => sha256.convert(utf8.encode(value)).toString();
+
+  @override void initState() {
+    super.initState();
+    _prepare();
+  }
+  Future<void> _prepare() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getString('login_user') == null) {
+      await prefs.setString('login_user', 'admin');
+      await prefs.setString('login_hash', digest('123456'));
+    }
+    if (mounted) setState(() => busy = false);
+  }
+  Future<void> _login() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedUser = prefs.getString('login_user') ?? 'admin';
+    final savedHash = prefs.getString('login_hash') ?? digest('123456');
+    if (username.text.trim() == savedUser && digest(password.text) == savedHash) {
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const PosHome()));
+    } else {
+      setState(() => error = 'Nama akun atau kata sandi salah.');
+    }
+  }
+  @override Widget build(BuildContext context) {
+    if (busy) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    return Scaffold(
+      body: Center(child: SingleChildScrollView(padding: const EdgeInsets.all(24), child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420), child: Card(child: Padding(padding: const EdgeInsets.all(24), child: Column(
+          mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const CircleAvatar(radius: 34, backgroundColor: Color(0xFFE7F2EC), child: Icon(Icons.storefront, size: 36, color: Color(0xFF137C5A))),
+            const SizedBox(height: 16),
+            const Text('Sri Rahayu POS', textAlign: TextAlign.center, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 5),
+            const Text('Silakan masuk ke akun Anda', textAlign: TextAlign.center, style: TextStyle(color: Colors.black54)),
+            const SizedBox(height: 24),
+            TextField(controller: username, textInputAction: TextInputAction.next, decoration: const InputDecoration(labelText: 'Nama akun', prefixIcon: Icon(Icons.person_outline), border: OutlineInputBorder())),
+            const SizedBox(height: 12),
+            TextField(controller: password, obscureText: obscure, onSubmitted: (_) => _login(), decoration: InputDecoration(labelText: 'Kata sandi', prefixIcon: const Icon(Icons.lock_outline), border: const OutlineInputBorder(), suffixIcon: IconButton(icon: Icon(obscure ? Icons.visibility : Icons.visibility_off), onPressed: () => setState(() => obscure = !obscure)))),
+            if (error.isNotEmpty) ...[const SizedBox(height: 10), Text(error, style: const TextStyle(color: Colors.red))],
+            const SizedBox(height: 18),
+            FilledButton(onPressed: _login, child: const Padding(padding: EdgeInsets.all(12), child: Text('Masuk'))),
+            const SizedBox(height: 12),
+            const Text('Login awal: admin  •  kata sandi: 123456', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54))
+          ],
+        ))),
+      )),
+    );
+  }
 }
 
 class Product {
@@ -88,6 +151,37 @@ class _PosHomeState extends State<PosHome> {
   List<Sale> get branchSales=>sales.where((s)=>s.branch==branch).toList();
   int get todaySales {final n=DateTime.now();return branchSales.where((s)=>s.date.year==n.year&&s.date.month==n.month&&s.date.day==n.day).fold(0,(a,s)=>a+s.total);}
   int get todayCount {final n=DateTime.now();return branchSales.where((s)=>s.date.year==n.year&&s.date.month==n.month&&s.date.day==n.day).length;}
+
+
+  Future<void> changeLoginPassword() async {
+    final oldPass = TextEditingController(), newPass = TextEditingController(), confirm = TextEditingController();
+    String message = '';
+    await showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, refresh) => AlertDialog(
+      title: const Text('Ubah kata sandi akun'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: oldPass, obscureText: true, decoration: const InputDecoration(labelText: 'Kata sandi lama')),
+        TextField(controller: newPass, obscureText: true, decoration: const InputDecoration(labelText: 'Kata sandi baru')),
+        TextField(controller: confirm, obscureText: true, decoration: const InputDecoration(labelText: 'Ulangi kata sandi baru')),
+        if (message.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(message, style: const TextStyle(color: Colors.red)))
+      ]),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
+        FilledButton(onPressed: () async {
+          final prefs = await SharedPreferences.getInstance();
+          final oldHash = sha256.convert(utf8.encode(oldPass.text)).toString();
+          if (oldHash != (prefs.getString('login_hash') ?? '')) { refresh(() => message = 'Kata sandi lama tidak benar.'); return; }
+          if (newPass.text.length < 6) { refresh(() => message = 'Kata sandi baru minimal 6 karakter.'); return; }
+          if (newPass.text != confirm.text) { refresh(() => message = 'Konfirmasi kata sandi tidak sama.'); return; }
+          await prefs.setString('login_hash', sha256.convert(utf8.encode(newPass.text)).toString());
+          if (ctx.mounted) Navigator.pop(ctx);
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Kata sandi berhasil diubah.')));
+        }, child: const Text('Simpan'))
+      ]
+    )));
+  }
+  void logout() {
+    Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const LoginGate()), (route) => false);
+  }
 
   Future<void> addProduct() async {
     final name=TextEditingController(), cat=TextEditingController(text:'Makanan'), price=TextEditingController(), stock=TextEditingController(text:'0');
@@ -268,6 +362,7 @@ class _PosHomeState extends State<PosHome> {
     const titles=['Ringkasan','Kasir','Daftar Menu','Laporan','Cabang','Pengeluaran'];
     return Scaffold(appBar:AppBar(title:Row(children:[Container(width:36,height:36,decoration:BoxDecoration(color:const Color(0xFF137C5A),borderRadius:BorderRadius.circular(10)),child:const Icon(Icons.storefront,color:Colors.white)),
       const SizedBox(width:9),Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(titles[tab],style:const TextStyle(fontSize:17,fontWeight:FontWeight.bold)),Text(branch,style:const TextStyle(fontSize:11,color:Colors.black54))])])),
+      actions:[PopupMenuButton<String>(onSelected:(v){if(v=='password')changeLoginPassword();if(v=='logout')logout();},itemBuilder:(_)=>const[PopupMenuItem(value:'password',child:Text('Ubah kata sandi')),PopupMenuItem(value:'logout',child:Text('Keluar akun'))])],
       body:IndexedStack(index:tab,children:pages),
       bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const[
         NavigationDestination(icon:Icon(Icons.dashboard_outlined),selectedIcon:Icon(Icons.dashboard),label:'Home'),
