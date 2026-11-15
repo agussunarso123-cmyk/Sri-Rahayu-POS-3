@@ -111,7 +111,6 @@ class Expense {
   factory Expense.fromJson(Map<String,dynamic> j)=>Expense(DateTime.tryParse(j['date']??'')??DateTime.now(),(j['amount'] as num?)?.toInt()??0,j['branch']??'Cabang Utama',j['category']??'Lainnya',j['note']??'');
 }
 
-class PosHome extends StatefulWidget {
 class Employee {
   Employee(this.id,this.name,this.salary);
   String id,name; int salary;
@@ -125,6 +124,8 @@ class StaffEntry {
   factory StaffEntry.fromJson(Map<String,dynamic> j)=>StaffEntry(DateTime.tryParse(j['date']??'')??DateTime.now(),j['employeeId']??'',j['employeeName']??'',j['branch']??'Cabang Utama',j['type']??'Gaji', (j['amount'] as num?)?.toInt()??0,j['note']??'');
 }
 
+
+class PosHome extends StatefulWidget {
   const PosHome({super.key});
   @override State<PosHome> createState()=>_PosHomeState();
 }
@@ -255,6 +256,10 @@ class _PosHomeState extends State<PosHome> {
   }
 
   Future<void> changeStock(Product p) async {
+    final c=TextEditingController(text:p.stock.toString());
+    await showDialog(context:context,builder:(ctx)=>AlertDialog(title:Text('Stok '+p.name),content:TextField(controller:c,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Jumlah stok')),
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Batal')),FilledButton(onPressed:(){final v=int.tryParse(c.text);if(v==null||v<0)return;setState(()=>p.stock=v);save();Navigator.pop(ctx);},child:const Text('Simpan'))]));
+  }
   int outstanding(Employee e) => staffEntries.where((x)=>x.employeeId==e.id && x.branch==branch).fold(0,(a,x)=>a+(x.type=='Kasbon'?x.amount:(x.type=='Potongan kasbon'?-x.amount:0)));
   Future<void> addEmployee() async {
     final n=TextEditingController(),s=TextEditingController();
@@ -296,10 +301,6 @@ class _PosHomeState extends State<PosHome> {
     if(employees.isEmpty)const Padding(padding:EdgeInsets.all(24),child:Center(child:Text('Belum ada karyawan. Tambahkan karyawan untuk mulai mencatat gaji dan kasbon.'))),
   ]));
 
-    final c=TextEditingController(text:p.stock.toString());
-    await showDialog(context:context,builder:(ctx)=>AlertDialog(title:Text('Stok '+p.name),content:TextField(controller:c,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Jumlah stok')),
-      actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Batal')),FilledButton(onPressed:(){final v=int.tryParse(c.text);if(v==null||v<0)return;setState(()=>p.stock=v);save();Navigator.pop(ctx);},child:const Text('Simpan'))]));
-  }
   Future<void> addBranch() async {
     final c=TextEditingController();
     await showDialog(context:context,builder:(ctx)=>AlertDialog(title:const Text('Tambah cabang'),content:TextField(controller:c,decoration:const InputDecoration(labelText:'Nama cabang')),
@@ -418,11 +419,11 @@ class _PosHomeState extends State<PosHome> {
 
   @override Widget build(BuildContext context){
     if(loading)return const Scaffold(body:Center(child:CircularProgressIndicator()));
-    final pages=[dashboard(),cashier(),menuPage(),reports(),branchPage(),expensePage()];    final pages=[dashboard(),cashier(),menuPage(),reports(),branchPage(),expensePage(),staffPage()];
-    const titles=['Ringkasan','Kasir','Daftar Menu','Laporan','Cabang','Pengeluaran'];    const titles=['Ringkasan','Kasir','Daftar Menu','Laporan','Cabang','Pengeluaran','Gaji & Kasbon'];
+    final pages=[dashboard(),cashier(),menuPage(),reports(),branchPage(),expensePage(),staffPage()];
+    const titles=['Ringkasan','Kasir','Daftar Menu','Laporan','Cabang','Pengeluaran','Gaji & Kasbon'];
     return Scaffold(appBar:AppBar(title:Row(children:[Container(width:36,height:36,decoration:BoxDecoration(color:const Color(0xFF137C5A),borderRadius:BorderRadius.circular(10)),child:const Icon(Icons.storefront,color:Colors.white)),
-      const SizedBox(width:9),Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(titles[tab],style:const TextStyle(fontSize:17,fontWeight:FontWeight.bold)),Text(branch,style:const TextStyle(fontSize:11,color:Colors.black54))])])),
-      actions:[PopupMenuButton<String>(onSelected:(v){if(v=='password')changeLoginPassword();if(v=='logout')logout();},itemBuilder:(_)=>const[PopupMenuItem(value:'password',child:Text('Ubah kata sandi')),PopupMenuItem(value:'logout',child:Text('Keluar akun'))])],
+      const SizedBox(width:9),Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(titles[tab],style:const TextStyle(fontSize:17,fontWeight:FontWeight.bold)),Text(branch,style:const TextStyle(fontSize:11,color:Colors.black54))])]),
+      actions:[PopupMenuButton<String>(onSelected:(v){if(v=='password')changeLoginPassword();if(v=='logout')logout();},itemBuilder:(_)=>const[PopupMenuItem(value:'password',child:Text('Ubah kata sandi')),PopupMenuItem(value:'logout',child:Text('Keluar akun'))])]),
       body:IndexedStack(index:tab,children:pages),
       bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const[
         NavigationDestination(icon:Icon(Icons.dashboard_outlined),selectedIcon:Icon(Icons.dashboard),label:'Home'),
