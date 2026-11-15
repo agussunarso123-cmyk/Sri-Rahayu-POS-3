@@ -1,0 +1,178 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+void main() => runApp(const SriRahayuApp());
+
+class SriRahayuApp extends StatelessWidget {
+  const SriRahayuApp({super.key});
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+    title: 'Sri Rahayu POS', debugShowCheckedModeBanner: false,
+    theme: ThemeData(useMaterial3: true, colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF137C5A)),
+      scaffoldBackgroundColor: const Color(0xFFF5F7F6),
+      appBarTheme: const AppBarTheme(backgroundColor: Color(0xFFF5F7F6)),
+      cardTheme: CardThemeData(color: Colors.white, elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)))),
+    home: const PosHome(),
+  );
+}
+
+class Product {
+  Product(this.id, this.name, this.category, this.price, this.stock, [this.image = '']);
+  String id, name, category, image;
+  int price, stock;
+  Map<String,dynamic> toJson() => {'id':id,'name':name,'category':category,'price':price,'stock':stock,'image':image};
+  factory Product.fromJson(Map<String,dynamic> j) => Product(j['id']??'',j['name']??'',j['category']??'Makanan',(j['price'] as num?)?.toInt()??0,(j['stock'] as num?)?.toInt()??0,j['image']??'');
+}
+class Sale {
+  Sale(this.date,this.total,this.branch,this.items);
+  DateTime date; int total; String branch; List<Map<String,dynamic>> items;
+  Map<String,dynamic> toJson()=>{'date':date.toIso8601String(),'total':total,'branch':branch,'items':items};
+  factory Sale.fromJson(Map<String,dynamic> j)=>Sale(DateTime.tryParse(j['date']??'')??DateTime.now(),(j['total'] as num?)?.toInt()??0,j['branch']??'Cabang Utama',List<Map<String,dynamic>>.from((j['items']??[]).map((e)=>Map<String,dynamic>.from(e))));
+}
+
+class PosHome extends StatefulWidget {
+  const PosHome({super.key});
+  @override State<PosHome> createState()=>_PosHomeState();
+}
+class _PosHomeState extends State<PosHome> {
+  int tab=0; bool loading=true;
+  String branch='Cabang Utama';
+  List<String> branches=['Cabang Utama'];
+  List<Product> products=[];
+  List<Sale> sales=[];
+  final Map<String,int> cart={};
+  final picker=ImagePicker();
+  final money=NumberFormat.currency(locale:'id_ID',symbol:'Rp ',decimalDigits:0);
+
+  @override void initState(){super.initState();load();}
+  Future<void> load() async {
+    final p=await SharedPreferences.getInstance();
+    try {
+      products=(jsonDecode(p.getString('products')??'[]') as List).map((e)=>Product.fromJson(Map<String,dynamic>.from(e))).toList();
+      sales=(jsonDecode(p.getString('sales')??'[]') as List).map((e)=>Sale.fromJson(Map<String,dynamic>.from(e))).toList();
+      branches=List<String>.from(jsonDecode(p.getString('branches')??'["Cabang Utama"]'));
+      branch=p.getString('branch')??branches.first;
+    } catch (_) { products=[]; sales=[]; branches=['Cabang Utama']; branch=branches.first; }
+    if(products.isEmpty) products=[Product('1','Bakso Original','Bakso',15000,50),Product('2','Mie Ayam','Makanan',13000,40),Product('3','Bakso Urat','Bakso',18000,35),Product('4','Es Teh','Minuman',5000,80)];
+    await save();
+    if(mounted)setState(()=>loading=false);
+  }
+  Future<void> save() async {
+    final p=await SharedPreferences.getInstance();
+    await p.setString('products',jsonEncode(products.map((e)=>e.toJson()).toList()));
+    await p.setString('sales',jsonEncode(sales.map((e)=>e.toJson()).toList()));
+    await p.setString('branches',jsonEncode(branches)); await p.setString('branch',branch);
+  }
+  int get total=>cart.entries.fold(0,(a,e){final p=products.firstWhere((x)=>x.id==e.key);return a+p.price*e.value;});
+  List<Sale> get branchSales=>sales.where((s)=>s.branch==branch).toList();
+  int get todaySales {final n=DateTime.now();return branchSales.where((s)=>s.date.year==n.year&&s.date.month==n.month&&s.date.day==n.day).fold(0,(a,s)=>a+s.total);}
+  int get todayCount {final n=DateTime.now();return branchSales.where((s)=>s.date.year==n.year&&s.date.month==n.month&&s.date.day==n.day).length;}
+
+  Future<void> addProduct() async {
+    final name=TextEditingController(), cat=TextEditingController(text:'Makanan'), price=TextEditingController(), stock=TextEditingController(text:'0');
+    String image='';
+    await showDialog(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
+      title:const Text('Tambah menu'),
+      content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+        InkWell(onTap:()async{final f=await picker.pickImage(source:ImageSource.gallery,imageQuality:75,maxWidth:900);if(f!=null)refresh(()=>image=f.path);},
+          child:Container(height:100,width:100,decoration:BoxDecoration(color:const Color(0xFFE7F2EC),borderRadius:BorderRadius.circular(14)),
+            child:image.isEmpty?const Icon(Icons.add_a_photo,size:32):ClipRRect(borderRadius:BorderRadius.circular(14),child:Image.file(File(image),fit:BoxFit.cover)))),
+        const SizedBox(height:12),TextField(controller:name,decoration:const InputDecoration(labelText:'Nama menu')),
+        const SizedBox(height:8),TextField(controller:cat,decoration:const InputDecoration(labelText:'Kategori')),
+        const SizedBox(height:8),TextField(controller:price,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Harga (Rp)')),
+        const SizedBox(height:8),TextField(controller:stock,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Stok awal')),
+      ])),
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Batal')),FilledButton(onPressed:(){
+        final v=int.tryParse(price.text)??0;if(name.text.trim().isEmpty||v<=0)return;
+        setState(()=>products.add(Product(DateTime.now().microsecondsSinceEpoch.toString(),name.text.trim(),cat.text.trim().isEmpty?'Makanan':cat.text.trim(),v,int.tryParse(stock.text)??0,image)));
+        save();Navigator.pop(ctx);
+      },child:const Text('Simpan'))],
+    )));
+  }
+  Future<void> changeStock(Product p) async {
+    final c=TextEditingController(text:p.stock.toString());
+    await showDialog(context:context,builder:(ctx)=>AlertDialog(title:Text('Stok '+p.name),content:TextField(controller:c,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Jumlah stok')),
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Batal')),FilledButton(onPressed:(){final v=int.tryParse(c.text);if(v==null||v<0)return;setState(()=>p.stock=v);save();Navigator.pop(ctx);},child:const Text('Simpan'))]));
+  }
+  Future<void> addBranch() async {
+    final c=TextEditingController();
+    await showDialog(context:context,builder:(ctx)=>AlertDialog(title:const Text('Tambah cabang'),content:TextField(controller:c,decoration:const InputDecoration(labelText:'Nama cabang')),
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Batal')),FilledButton(onPressed:(){final v=c.text.trim();if(v.isEmpty||branches.contains(v))return;setState((){branches.add(v);branch=v;cart.clear();});save();Navigator.pop(ctx);},child:const Text('Tambah'))]));
+  }
+  Future<void> checkout() async {
+    if(cart.isEmpty)return;
+    for(final e in cart.entries){final p=products.firstWhere((x)=>x.id==e.key);if(p.stock<e.value){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Stok '+p.name+' tidak cukup')));return;}}
+    final lines=<Map<String,dynamic>>[];
+    for(final e in cart.entries){final p=products.firstWhere((x)=>x.id==e.key);lines.add({'name':p.name,'qty':e.value,'price':p.price});p.stock-=e.value;}
+    sales.insert(0,Sale(DateTime.now(),total,branch,lines));cart.clear();await save();setState(()=>tab=0);
+    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Transaksi berhasil disimpan')));
+  }
+
+  Widget stat(String title,String value,IconData icon)=>Expanded(child:Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    Icon(icon,color:const Color(0xFF137C5A),size:26),const SizedBox(height:12),Text(title,style:const TextStyle(color:Colors.black54,fontSize:12)),
+    const SizedBox(height:4),Text(value,style:const TextStyle(fontWeight:FontWeight.bold,fontSize:17),maxLines:1,overflow:TextOverflow.ellipsis)
+  ]))));
+  Widget dashboard()=>ListView(padding:const EdgeInsets.all(16),children:[
+    Container(padding:const EdgeInsets.all(20),decoration:BoxDecoration(borderRadius:BorderRadius.circular(22),gradient:const LinearGradient(colors:[Color(0xFF126B50),Color(0xFF23966D)])),
+      child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('SELAMAT DATANG',style:TextStyle(color:Colors.white70,letterSpacing:1.2,fontSize:11)),const SizedBox(height:8),
+        const Text('Sri Rahayu POS',style:TextStyle(color:Colors.white,fontSize:25,fontWeight:FontWeight.bold)),const SizedBox(height:5),Text(branch,style:const TextStyle(color:Colors.white70)),
+        const SizedBox(height:18),const Text('Kelola penjualan usaha Anda dengan mudah',style:TextStyle(color:Colors.white))])),
+    const SizedBox(height:16),Row(children:[stat('Penjualan hari ini',money.format(todaySales),Icons.payments_outlined),const SizedBox(width:10),stat('Transaksi hari ini',todayCount.toString(),Icons.receipt_long)]),
+    const SizedBox(height:18),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Transaksi terbaru',style:TextStyle(fontWeight:FontWeight.bold,fontSize:17)),TextButton(onPressed:()=>setState(()=>tab=3),child:const Text('Lihat semua'))]),
+    ...branchSales.take(5).map((s)=>Card(child:ListTile(leading:const CircleAvatar(child:Icon(Icons.receipt)),title:Text(money.format(s.total),style:const TextStyle(fontWeight:FontWeight.bold)),subtitle:Text(DateFormat('dd MMM yyyy • HH:mm','id_ID').format(s.date)),trailing:Text(s.items.length.toString()+' menu')))),
+    if(branchSales.isEmpty)const Padding(padding:EdgeInsets.all(24),child:Center(child:Text('Belum ada transaksi. Silakan mulai dari menu Kasir.')))
+  ]);
+
+  Widget cashier()=>Column(children:[
+    Padding(padding:const EdgeInsets.all(14),child:Row(children:[Expanded(child:Text('Menu • '+branch,style:const TextStyle(fontWeight:FontWeight.bold,fontSize:17))),Text(cart.values.fold(0,(a,b)=>a+b).toString()+' item')])),
+    Expanded(child:GridView.builder(padding:const EdgeInsets.all(12),gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount:2,childAspectRatio:.9,crossAxisSpacing:10,mainAxisSpacing:10),
+      itemCount:products.length,itemBuilder:(ctx,i){final p=products[i],q=cart[p.id]??0;return Card(clipBehavior:Clip.antiAlias,child:InkWell(onTap:p.stock<=q?null:()=>setState(()=>cart[p.id]=q+1),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Expanded(child:SizedBox(width:double.infinity,child:p.image.isNotEmpty&&File(p.image).existsSync()?Image.file(File(p.image),fit:BoxFit.cover):Container(color:const Color(0xFFE7F2EC),child:const Icon(Icons.restaurant,size:40,color:Color(0xFF39866A))))),
+        Padding(padding:const EdgeInsets.all(10),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(p.name,maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.bold)),Text(money.format(p.price),style:const TextStyle(color:Color(0xFF137C5A),fontWeight:FontWeight.w600)),Text('Stok '+p.stock.toString()+(q>0?' • Dipilih '+q.toString():''),style:const TextStyle(fontSize:11,color:Colors.black54))]))
+      ])));})),
+    Container(padding:const EdgeInsets.all(14),decoration:const BoxDecoration(color:Colors.white,borderRadius:BorderRadius.vertical(top:Radius.circular(18))),child:Column(children:[
+      Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Total pembayaran',style:TextStyle(fontWeight:FontWeight.w600)),Text(money.format(total),style:const TextStyle(fontWeight:FontWeight.bold,fontSize:20,color:Color(0xFF137C5A)))]),
+      const SizedBox(height:10),Row(children:[Expanded(child:OutlinedButton(onPressed:cart.isEmpty?null:()=>setState(()=>cart.clear()),child:const Text('Kosongkan'))),const SizedBox(width:10),Expanded(flex:2,child:FilledButton.icon(onPressed:cart.isEmpty?null:checkout,icon:const Icon(Icons.check),label:const Text('Bayar sekarang')))])
+    ]))
+  ]);
+
+  Widget menuPage()=>Scaffold(backgroundColor:Colors.transparent,floatingActionButton:FloatingActionButton.extended(onPressed:addProduct,icon:const Icon(Icons.add),label:const Text('Tambah menu')),
+    body:ListView.builder(padding:const EdgeInsets.all(12),itemCount:products.length,itemBuilder:(ctx,i){final p=products[i];return Card(child:ListTile(
+      leading:ClipRRect(borderRadius:BorderRadius.circular(9),child:SizedBox(width:52,height:52,child:p.image.isNotEmpty&&File(p.image).existsSync()?Image.file(File(p.image),fit:BoxFit.cover):Container(color:const Color(0xFFE7F2EC),child:const Icon(Icons.restaurant)))),
+      title:Text(p.name,style:const TextStyle(fontWeight:FontWeight.bold)),subtitle:Text(p.category+' • '+money.format(p.price)+' • Stok '+p.stock.toString()),
+      trailing:PopupMenuButton<String>(onSelected:(v){if(v=='stock')changeStock(p);if(v=='delete')setState(()=>products.remove(p));save();},itemBuilder:(_)=>const[PopupMenuItem(value:'stock',child:Text('Ubah stok')),PopupMenuItem(value:'delete',child:Text('Hapus menu'))])
+    ));}));
+  Widget reports()=>ListView(padding:const EdgeInsets.all(16),children:[
+    Card(child:Padding(padding:const EdgeInsets.all(18),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('Total penjualan tercatat',style:TextStyle(color:Colors.black54)),const SizedBox(height:8),Text(money.format(branchSales.fold(0,(a,s)=>a+s.total)),style:const TextStyle(fontWeight:FontWeight.bold,fontSize:25,color:Color(0xFF137C5A))),Text(branchSales.length.toString()+' transaksi • '+branch)]))),
+    const SizedBox(height:12),const Text('Riwayat transaksi',style:TextStyle(fontWeight:FontWeight.bold,fontSize:17)),
+    ...branchSales.map((s)=>Card(child:ExpansionTile(leading:const Icon(Icons.receipt_long,color:Color(0xFF137C5A)),title:Text(money.format(s.total),style:const TextStyle(fontWeight:FontWeight.bold)),subtitle:Text(DateFormat('dd MMM yyyy • HH:mm','id_ID').format(s.date)),
+      children:s.items.map((e)=>ListTile(dense:true,title:Text(e['name'].toString()),trailing:Text(e['qty'].toString()+' x '+money.format((e['price'] as num).toInt())))).toList()))),
+    if(branchSales.isEmpty)const Padding(padding:EdgeInsets.all(24),child:Center(child:Text('Belum ada transaksi di cabang ini')))
+  ]);
+  Widget branchPage()=>ListView(padding:const EdgeInsets.all(16),children:[
+    const Text('Kelola lokasi usaha',style:TextStyle(fontWeight:FontWeight.bold,fontSize:18)),const SizedBox(height:5),const Text('Pilih cabang aktif untuk melihat transaksi cabang tersebut.',style:TextStyle(color:Colors.black54)),const SizedBox(height:12),
+    ...branches.map((b)=>Card(child:RadioListTile<String>(value:b,groupValue:branch,onChanged:(v){if(v==null)return;setState((){branch=v;cart.clear();});save();},title:Text(b,style:const TextStyle(fontWeight:FontWeight.w600)),subtitle:Text(sales.where((s)=>s.branch==b).length.toString()+' transaksi'),secondary:const Icon(Icons.store,color:Color(0xFF137C5A))))),
+    OutlinedButton.icon(onPressed:addBranch,icon:const Icon(Icons.add_business),label:const Text('Tambah cabang')),
+    const Card(child:Padding(padding:EdgeInsets.all(14),child:Text('Catatan: data versi ini tersimpan di HP. Sinkronisasi otomatis antarperangkat/cabang belum tersedia.')))
+  ]);
+
+  @override Widget build(BuildContext context){
+    if(loading)return const Scaffold(body:Center(child:CircularProgressIndicator()));
+    final pages=[dashboard(),cashier(),menuPage(),reports(),branchPage()];
+    const titles=['Ringkasan','Kasir','Daftar Menu','Laporan','Cabang'];
+    return Scaffold(appBar:AppBar(title:Row(children:[Container(width:36,height:36,decoration:BoxDecoration(color:const Color(0xFF137C5A),borderRadius:BorderRadius.circular(10)),child:const Icon(Icons.storefront,color:Colors.white)),
+      const SizedBox(width:9),Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(titles[tab],style:const TextStyle(fontSize:17,fontWeight:FontWeight.bold)),Text(branch,style:const TextStyle(fontSize:11,color:Colors.black54))])])),
+      body:IndexedStack(index:tab,children:pages),
+      bottomNavigationBar:NavigationBar(selectedIndex:tab,onDestinationSelected:(v)=>setState(()=>tab=v),destinations:const[
+        NavigationDestination(icon:Icon(Icons.dashboard_outlined),selectedIcon:Icon(Icons.dashboard),label:'Home'),
+        NavigationDestination(icon:Icon(Icons.point_of_sale_outlined),selectedIcon:Icon(Icons.point_of_sale),label:'Kasir'),
+        NavigationDestination(icon:Icon(Icons.restaurant_menu),label:'Menu'),
+        NavigationDestination(icon:Icon(Icons.bar_chart_outlined),selectedIcon:Icon(Icons.bar_chart),label:'Laporan'),
+        NavigationDestination(icon:Icon(Icons.store_outlined),selectedIcon:Icon(Icons.store),label:'Cabang')
+      ]));
+  }
+}
