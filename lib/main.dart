@@ -6,6 +6,9 @@ import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crypto/crypto.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -340,6 +343,73 @@ class _PosHomeState extends State<PosHome> {
       ),
     );
   }
+  Future<void> printPayslip(Employee e) async {
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      helpText: 'Pilih bulan slip gaji',
+    );
+    if (selected == null || !mounted) return;
+    final periodEntries = staffEntries.where((x) =>
+      x.employeeId == e.id &&
+      x.branch == branch &&
+      x.date.year == selected.year &&
+      x.date.month == selected.month
+    ).toList();
+    final grossRecorded = periodEntries.where((x) => x.type == 'Gaji').fold<int>(0, (a, x) => a + x.amount);
+    final deduction = periodEntries.where((x) => x.type == 'Potongan kasbon').fold<int>(0, (a, x) => a + x.amount);
+    final gross = grossRecorded > 0 ? grossRecorded : e.salary;
+    final net = (gross - deduction).clamp(0, 1 << 31);
+    final paidDate = periodEntries.where((x) => x.type == 'Gaji').isNotEmpty
+      ? periodEntries.firstWhere((x) => x.type == 'Gaji').date
+      : selected;
+    final pdf = pw.Document();
+    pw.Widget line(String label, String value, {bool bold = false}) => pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 5),
+      child: pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+        pw.Text(label, style: pw.TextStyle(fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
+        pw.Text(value, style: pw.TextStyle(fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
+      ]),
+    );
+    pdf.addPage(pw.Page(
+      pageFormat: PdfPageFormat.a5,
+      margin: const pw.EdgeInsets.all(28),
+      build: (context) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+        pw.Center(child: pw.Text('SRI RAHAYU POS', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold))),
+        pw.SizedBox(height: 4),
+        pw.Center(child: pw.Text('SLIP GAJI KARYAWAN', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold))),
+        pw.SizedBox(height: 14),
+        pw.Divider(),
+        line('Nama karyawan', e.name),
+        line('Cabang', branch),
+        line('Periode', DateFormat('MMMM yyyy', 'id_ID').format(selected)),
+        line('Tanggal slip', DateFormat('dd MMMM yyyy', 'id_ID').format(paidDate)),
+        pw.Divider(),
+        line('Gaji pokok per bulan', money.format(e.salary)),
+        line('Total gaji tercatat', money.format(grossRecorded)),
+        line('Potongan kasbon', money.format(deduction)),
+        pw.Divider(),
+        line('GAJI BERSIH', money.format(net), bold: true),
+        pw.Spacer(),
+        pw.Text('Catatan: slip ini dibuat dari catatan gaji dan potongan kasbon pada aplikasi.', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
+        pw.SizedBox(height: 24),
+        pw.Row(mainAxisAlignment: pw.MainAxisAlignment.end, children: [
+          pw.Column(children: [
+            pw.Text('Penerima,'),
+            pw.SizedBox(height: 42),
+            pw.Text(e.name, style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+          ]),
+        ]),
+      ]),
+    ));
+    await Printing.layoutPdf(
+      onLayout: (format) async => pdf.save(),
+      name: 'Slip_Gaji_${e.name.replaceAll(' ', '_')}_${selected.year}_${selected.month}.pdf',
+    );
+  }
+
   Widget staffPage()=>Scaffold(backgroundColor:Colors.transparent,floatingActionButton:FloatingActionButton.extended(onPressed:addEmployee,icon:const Icon(Icons.person_add),label:const Text('Tambah karyawan')),body:ListView(padding:const EdgeInsets.all(14),children:[
     Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
       const Text('Rekap gaji & kasbon',style:TextStyle(fontWeight:FontWeight.bold,fontSize:17)),
@@ -350,6 +420,7 @@ class _PosHomeState extends State<PosHome> {
     ...employees.map((e)=>Card(child:ExpansionTile(leading:const CircleAvatar(child:Icon(Icons.person)),title:Text(e.name,style:const TextStyle(fontWeight:FontWeight.bold)),subtitle:Text('Gaji pokok: '+money.format(e.salary)+' • Sisa kasbon: '+money.format(outstanding(e))),children:[
       Padding(padding:const EdgeInsets.symmetric(horizontal:12),child:Wrap(spacing:8,children:[
         FilledButton.tonal(onPressed:()=>addStaffEntry(e),child:const Text('Catat gaji / kasbon')),
+        OutlinedButton.icon(onPressed:()=>printPayslip(e),icon:const Icon(Icons.print_outlined),label:const Text('Cetak slip gaji')),
       ])),
       ...staffEntries.where((x)=>x.employeeId==e.id&&x.branch==branch).take(10).map((x)=>ListTile(dense:true,title:Text(x.type),subtitle:Text(DateFormat('dd MMM yyyy','id_ID').format(x.date)+(x.note.isEmpty?'':' • '+x.note)),trailing:Text(money.format(x.amount)))),
     ]))),
