@@ -275,7 +275,7 @@ class _PosHomeState extends State<PosHome> {
         NavigationDestination(icon:Icon(Icons.restaurant_menu),label:'Menu'),
         NavigationDestination(icon:Icon(Icons.bar_chart_outlined),selectedIcon:Icon(Icons.bar_chart),label:'Laporan'),
         NavigationDestination(icon:Icon(Icons.store_outlined),selectedIcon:Icon(Icons.store),label:'Cabang'),
-        NavigationDestination(icon:Icon(Icons.wallet_outlined),selectedIcon:Icon(Icons.wallet),label:'Biaya')
+        NavigationDestination(icon:Icon(Icons.account_balance_wallet_outlined),selectedIcon:Icon(Icons.account_balance_wallet),label:'Biaya')
       ]));
   }
 }
