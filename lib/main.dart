@@ -33,10 +33,12 @@ class Product {
   factory Product.fromJson(Map<String,dynamic> j) => Product(j['id']??'',j['name']??'',j['category']??'Makanan',(j['price'] as num?)?.toInt()??0,(j['stock'] as num?)?.toInt()??0,j['image']??'');
 }
 class Sale {
-  Sale(this.date,this.total,this.branch,this.items);
+  Sale(this.date,this.total,this.branch,this.items,{this.payment='Tunai',this.cashReceived=0});
   DateTime date; int total; String branch; List<Map<String,dynamic>> items;
-  Map<String,dynamic> toJson()=>{'date':date.toIso8601String(),'total':total,'branch':branch,'items':items};
-  factory Sale.fromJson(Map<String,dynamic> j)=>Sale(DateTime.tryParse(j['date']??'')??DateTime.now(),(j['total'] as num?)?.toInt()??0,j['branch']??'Cabang Utama',List<Map<String,dynamic>>.from((j['items']??[]).map((e)=>Map<String,dynamic>.from(e))));
+  String payment; int cashReceived;
+  int get changeDue => cashReceived > total ? cashReceived-total : 0;
+  Map<String,dynamic> toJson()=>{'date':date.toIso8601String(),'total':total,'branch':branch,'items':items,'payment':payment,'cashReceived':cashReceived};
+  factory Sale.fromJson(Map<String,dynamic> j)=>Sale(DateTime.tryParse(j['date']??'')??DateTime.now(),(j['total'] as num?)?.toInt()??0,j['branch']??'Cabang Utama',List<Map<String,dynamic>>.from((j['items']??[]).map((e)=>Map<String,dynamic>.from(e))),payment:j['payment']??'Tunai',cashReceived:(j['cashReceived'] as num?)?.toInt()??0);
 }
 
 class PosHome extends StatefulWidget {
@@ -111,10 +113,43 @@ class _PosHomeState extends State<PosHome> {
   Future<void> checkout() async {
     if(cart.isEmpty)return;
     for(final e in cart.entries){final p=products.firstWhere((x)=>x.id==e.key);if(p.stock<e.value){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Stok '+p.name+' tidak cukup')));return;}}
+    final cashController=TextEditingController(text:total.toString());
+    String payment='Tunai';
+    final confirmed=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
+      title:const Text('Pembayaran'),
+      content:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
+        const Text('Total tagihan',style:TextStyle(color:Colors.black54)),
+        const SizedBox(height:4),
+        Text(money.format(total),style:const TextStyle(fontWeight:FontWeight.bold,fontSize:24,color:Color(0xFF137C5A))),
+        const SizedBox(height:16),
+        DropdownButtonFormField<String>(value:payment,decoration:const InputDecoration(labelText:'Metode pembayaran'),items:const[
+          DropdownMenuItem(value:'Tunai',child:Text('Tunai')),
+          DropdownMenuItem(value:'QRIS',child:Text('QRIS')),
+          DropdownMenuItem(value:'Transfer',child:Text('Transfer bank')),
+          DropdownMenuItem(value:'E-Wallet',child:Text('E-Wallet'))
+        ],onChanged:(v)=>refresh(()=>payment=v??'Tunai')),
+        if(payment=='Tunai')...[
+          const SizedBox(height:12),
+          TextField(controller:cashController,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Uang diterima',prefixText:'Rp '))
+        ]
+      ]),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('Batal')),
+        FilledButton(onPressed:(){
+          final received=payment=='Tunai'?(int.tryParse(cashController.text)??0):total;
+          if(received<total){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Uang diterima masih kurang')));return;}
+          Navigator.pop(ctx,true);
+        },child:const Text('Selesaikan'))
+      ]
+    )));
+    if(confirmed!=true)return;
+    final received=payment=='Tunai'?(int.tryParse(cashController.text)??0):total;
+    final paidTotal=total;
     final lines=<Map<String,dynamic>>[];
     for(final e in cart.entries){final p=products.firstWhere((x)=>x.id==e.key);lines.add({'name':p.name,'qty':e.value,'price':p.price});p.stock-=e.value;}
-    sales.insert(0,Sale(DateTime.now(),total,branch,lines));cart.clear();await save();setState(()=>tab=0);
-    if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Transaksi berhasil disimpan')));
+    sales.insert(0,Sale(DateTime.now(),paidTotal,branch,lines,payment:payment,cashReceived:received));
+    cart.clear();await save();setState(()=>tab=0);
+    if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Transaksi berhasil • Kembalian: '+money.format(received-paidTotal))));
   }
 
   Widget stat(String title,String value,IconData icon)=>Expanded(child:Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
@@ -128,7 +163,7 @@ class _PosHomeState extends State<PosHome> {
         const SizedBox(height:18),const Text('Kelola penjualan usaha Anda dengan mudah',style:TextStyle(color:Colors.white))])),
     const SizedBox(height:16),Row(children:[stat('Penjualan hari ini',money.format(todaySales),Icons.payments_outlined),const SizedBox(width:10),stat('Transaksi hari ini',todayCount.toString(),Icons.receipt_long)]),
     const SizedBox(height:18),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Transaksi terbaru',style:TextStyle(fontWeight:FontWeight.bold,fontSize:17)),TextButton(onPressed:()=>setState(()=>tab=3),child:const Text('Lihat semua'))]),
-    ...branchSales.take(5).map((s)=>Card(child:ListTile(leading:const CircleAvatar(child:Icon(Icons.receipt)),title:Text(money.format(s.total),style:const TextStyle(fontWeight:FontWeight.bold)),subtitle:Text(DateFormat('dd MMM yyyy • HH:mm','id_ID').format(s.date)),trailing:Text(s.items.length.toString()+' menu')))),
+    ...branchSales.take(5).map((s)=>Card(child:ListTile(leading:const CircleAvatar(child:Icon(Icons.receipt)),title:Text(money.format(s.total),style:const TextStyle(fontWeight:FontWeight.bold)),subtitle:Text(DateFormat('dd MMM yyyy • HH:mm','id_ID').format(s.date)+' • '+s.payment),trailing:Text(s.items.length.toString()+' menu')))),
     if(branchSales.isEmpty)const Padding(padding:EdgeInsets.all(24),child:Center(child:Text('Belum ada transaksi. Silakan mulai dari menu Kasir.')))
   ]);
 
