@@ -128,6 +128,13 @@ class StaffEntry {
 }
 
 
+class LeaveEntry {
+  LeaveEntry(this.date,this.employeeId,this.employeeName,this.branch,this.type,this.note);
+  DateTime date; String employeeId,employeeName,branch,type,note;
+  Map<String,dynamic> toJson()=>{'date':date.toIso8601String(),'employeeId':employeeId,'employeeName':employeeName,'branch':branch,'type':type,'note':note};
+  factory LeaveEntry.fromJson(Map<String,dynamic> j)=>LeaveEntry(DateTime.tryParse(j['date']??'')??DateTime.now(),j['employeeId']??'',j['employeeName']??'',j['branch']??'Cabang Utama',j['type']??'Libur',j['note']??'');
+}
+
 class PosHome extends StatefulWidget {
   const PosHome({super.key});
   @override State<PosHome> createState()=>_PosHomeState();
@@ -141,6 +148,7 @@ class _PosHomeState extends State<PosHome> {
   List<Expense> expenses=[];
   List<Employee> employees=[];
   List<StaffEntry> staffEntries=[];
+  List<LeaveEntry> leaveEntries=[];
   final Map<String,int> cart={};
   final picker=ImagePicker();
   final money=NumberFormat.currency(locale:'id_ID',symbol:'Rp ',decimalDigits:0);
@@ -154,6 +162,7 @@ class _PosHomeState extends State<PosHome> {
       expenses=(jsonDecode(p.getString('expenses')??'[]') as List).map((e)=>Expense.fromJson(Map<String,dynamic>.from(e))).toList();
       employees=(jsonDecode(p.getString('employees')??'[]') as List).map((e)=>Employee.fromJson(Map<String,dynamic>.from(e))).toList();
       staffEntries=(jsonDecode(p.getString('staff_entries')??'[]') as List).map((e)=>StaffEntry.fromJson(Map<String,dynamic>.from(e))).toList();
+      leaveEntries=(jsonDecode(p.getString('leave_entries')??'[]') as List).map((e)=>LeaveEntry.fromJson(Map<String,dynamic>.from(e))).toList();
       branches=List<String>.from(jsonDecode(p.getString('branches')??'["Cabang Utama"]'));
       branch=p.getString('branch')??branches.first;
     } catch (_) { products=[]; sales=[]; branches=['Cabang Utama']; branch=branches.first; }
@@ -168,6 +177,7 @@ class _PosHomeState extends State<PosHome> {
     await p.setString('expenses',jsonEncode(expenses.map((e)=>e.toJson()).toList()));
     await p.setString('employees',jsonEncode(employees.map((e)=>e.toJson()).toList()));
     await p.setString('staff_entries',jsonEncode(staffEntries.map((e)=>e.toJson()).toList()));
+    await p.setString('leave_entries',jsonEncode(leaveEntries.map((e)=>e.toJson()).toList()));
     await p.setString('branches',jsonEncode(branches)); await p.setString('branch',branch);
   }
   int get total=>cart.entries.fold(0,(a,e){final p=products.firstWhere((x)=>x.id==e.key);return a+p.price*e.value;});
@@ -343,6 +353,39 @@ class _PosHomeState extends State<PosHome> {
       ),
     );
   }
+  Future<void> addLeave(Employee e) async {
+    DateTime selectedDate=DateTime.now();
+    String type='Libur';
+    final note=TextEditingController();
+    await showDialog<void>(
+      context:context,
+      builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
+        title:Text('Catat libur • ${e.name}'),
+        content:Column(mainAxisSize:MainAxisSize.min,children:[
+          ListTile(contentPadding:EdgeInsets.zero,leading:const Icon(Icons.calendar_month),title:const Text('Tanggal'),subtitle:Text(DateFormat('EEEE, dd MMMM yyyy','id_ID').format(selectedDate)),onTap:()async{
+            final d=await showDatePicker(context:ctx,initialDate:selectedDate,firstDate:DateTime(2020),lastDate:DateTime(2100));
+            if(d!=null)refresh(()=>selectedDate=d);
+          }),
+          DropdownButtonFormField<String>(value:type,decoration:const InputDecoration(labelText:'Jenis ketidakhadiran'),items:const[
+            DropdownMenuItem(value:'Libur',child:Text('Libur')),
+            DropdownMenuItem(value:'Cuti',child:Text('Cuti')),
+            DropdownMenuItem(value:'Izin',child:Text('Izin')),
+            DropdownMenuItem(value:'Sakit',child:Text('Sakit')),
+          ],onChanged:(v)=>refresh(()=>type=v??'Libur')),
+          TextField(controller:note,maxLines:2,decoration:const InputDecoration(labelText:'Alasan / catatan (opsional)')),
+        ]),
+        actions:[
+          TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Batal')),
+          FilledButton(onPressed:(){
+            setState(()=>leaveEntries.insert(0,LeaveEntry(selectedDate,e.id,e.name,branch,type,note.text.trim())));
+            save();Navigator.pop(ctx);
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Jadwal libur berhasil disimpan')));
+          },child:const Text('Simpan')),
+        ],
+      )),
+    );
+  }
+
   Future<void> printPayslip(Employee e) async {
     final selected = await showDatePicker(
       context: context,
@@ -421,7 +464,11 @@ class _PosHomeState extends State<PosHome> {
       Padding(padding:const EdgeInsets.symmetric(horizontal:12),child:Wrap(spacing:8,children:[
         FilledButton.tonal(onPressed:()=>addStaffEntry(e),child:const Text('Catat gaji / kasbon')),
         OutlinedButton.icon(onPressed:()=>printPayslip(e),icon:const Icon(Icons.print_outlined),label:const Text('Cetak slip gaji')),
+        OutlinedButton.icon(onPressed:()=>addLeave(e),icon:const Icon(Icons.event_busy_outlined),label:const Text('Catat libur')),
       ])),
+      ...leaveEntries.where((x)=>x.employeeId==e.id&&x.branch==branch).take(10).map((x)=>ListTile(dense:true,leading:const Icon(Icons.event_busy_outlined,color:Colors.deepOrange),title:Text(x.type+' • '+DateFormat('dd MMM yyyy','id_ID').format(x.date)),subtitle:Text(x.note.isEmpty?'Tidak ada catatan':x.note),trailing:IconButton(tooltip:'Hapus catatan',icon:const Icon(Icons.delete_outline),onPressed:(){
+        setState(()=>leaveEntries.remove(x));save();
+      }))),
       ...staffEntries.where((x)=>x.employeeId==e.id&&x.branch==branch).take(10).map((x)=>ListTile(dense:true,title:Text(x.type),subtitle:Text(DateFormat('dd MMM yyyy','id_ID').format(x.date)+(x.note.isEmpty?'':' • '+x.note)),trailing:Text(money.format(x.amount)))),
     ]))),
     if(employees.isEmpty)const Padding(padding:EdgeInsets.all(24),child:Center(child:Text('Belum ada karyawan. Tambahkan karyawan untuk mulai mencatat gaji dan kasbon.'))),
